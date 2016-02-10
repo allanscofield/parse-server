@@ -16,6 +16,8 @@ import { S3Adapter } from './Adapters/Files/S3Adapter';
 
 import { FilesController } from './Controllers/FilesController';
 
+import { ClassesRouter } from './Routers/ClassesRouter';
+
 // Mutate the Parse object to add the Cloud Code handlers
 addParseCloud();
 
@@ -110,24 +112,28 @@ function ParseServer(args) {
   api.use(middlewares.allowMethodOverride);
   api.use(middlewares.handleParseHeaders);
 
-  var router = new PromiseRouter();
-
-  router.merge(require('./classes'));
-  router.merge(require('./users'));
-  router.merge(require('./sessions'));
-  router.merge(require('./roles'));
-  router.merge(require('./analytics'));
-  router.merge(require('./push').router);
-  router.merge(require('./installations'));
-  router.merge(require('./functions'));
-  router.merge(require('./schemas'));
+  let routers = [
+    new ClassesRouter().getExpressRouter(),
+    require('./users'),
+    require('./sessions'),
+    require('./roles'),
+    require('./analytics'),
+    require('./push').router,
+    require('./installations'),
+    require('./functions'),
+    require('./schemas')
+  ];
   if (process.env.PARSE_EXPERIMENTAL_CONFIG_ENABLED || process.env.TESTING) {
-    router.merge(require('./global_config'));
+    routers.push(require('./global_config'));
   }
 
-  batch.mountOnto(router);
+  let appRouter = new PromiseRouter();
+  routers.forEach((router) => {
+    appRouter.merge(router);
+  });
+  batch.mountOnto(appRouter);
 
-  router.mountOnto(api);
+  appRouter.mountOnto(api);
 
   api.use(middlewares.handleParseErrors);
 

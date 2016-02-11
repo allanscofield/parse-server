@@ -17,6 +17,7 @@ import { S3Adapter } from './Adapters/Files/S3Adapter';
 import { FilesController } from './Controllers/FilesController';
 
 import { ClassesRouter } from './Routers/ClassesRouter';
+import { InstallationsRouter } from './Routers/InstallationsRouter';
 
 // Mutate the Parse object to add the Cloud Code handlers
 addParseCloud();
@@ -119,7 +120,7 @@ function ParseServer(args) {
     require('./roles'),
     require('./analytics'),
     require('./push').router,
-    require('./installations'),
+    new InstallationsRouter().getExpressRouter(),
     require('./functions'),
     require('./schemas')
   ];

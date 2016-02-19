@@ -13,8 +13,19 @@ var batch = require('./batch'),
 
 import { GridStoreAdapter } from './Adapters/Files/GridStoreAdapter';
 import { S3Adapter } from './Adapters/Files/S3Adapter';
-
 import { FilesController } from './Controllers/FilesController';
+
+import ParsePushAdapter from './Adapters/Push/ParsePushAdapter';
+import { PushController } from './Controllers/PushController';
+
+import { ClassesRouter } from './Routers/ClassesRouter';
+import { InstallationsRouter } from './Routers/InstallationsRouter';
+import { UsersRouter } from './Routers/UsersRouter';
+import { SessionsRouter } from './Routers/SessionsRouter';
+import { RolesRouter } from './Routers/RolesRouter';
+
+import { FileLoggerAdapter } from './Adapters/Logger/FileLoggerAdapter';
+import { LoggerController } from './Controllers/LoggerController';
 
 // Mutate the Parse object to add the Cloud Code handlers
 addParseCloud();
@@ -41,6 +52,8 @@ addParseCloud();
 // "dotNetKey": optional key from Parse dashboard
 // "restAPIKey": optional key from Parse dashboard
 // "javascriptKey": optional key from Parse dashboard
+// "push": optional key from configure push
+
 function ParseServer(args) {
   if (!args.appId || !args.masterKey) {
     throw 'You must provide an appId and masterKey!';
@@ -50,8 +63,21 @@ function ParseServer(args) {
     DatabaseAdapter.setAdapter(args.databaseAdapter);
   }
 
+  // Make files adapter
   let filesAdapter = args.filesAdapter || new GridStoreAdapter();
 
+  // Make push adapter
+  let pushConfig = args.push;
+  let pushAdapter;
+  if (pushConfig && pushConfig.adapter) {
+    pushAdapter = pushConfig.adapter;
+  } else if (pushConfig) {
+    pushAdapter = new ParsePushAdapter(pushConfig)
+  }
+
+  // Make logger adapter
+  let loggerAdapter = args.loggerAdapter || new FileLoggerAdapter();
+  
   if (args.databaseURI) {
     DatabaseAdapter.setAppDatabaseURI(args.appId, args.databaseURI);
   }
@@ -78,7 +104,9 @@ function ParseServer(args) {
     restAPIKey: args.restAPIKey || '',
     fileKey: args.fileKey || 'invalid-file-key',
     facebookAppIds: args.facebookAppIds || [],
-    filesController: filesController
+    filesController: filesController,
+    enableAnonymousUsers: args.enableAnonymousUsers || true,
+    oauth: args.oauth || {},
   };
 
   // To maintain compatibility. TODO: Remove in v2.1
@@ -110,24 +138,29 @@ function ParseServer(args) {
   api.use(middlewares.allowMethodOverride);
   api.use(middlewares.handleParseHeaders);
 
-  var router = new PromiseRouter();
-
-  router.merge(require('./classes'));
-  router.merge(require('./users'));
-  router.merge(require('./sessions'));
-  router.merge(require('./roles'));
-  router.merge(require('./analytics'));
-  router.merge(require('./push').router);
-  router.merge(require('./installations'));
-  router.merge(require('./functions'));
-  router.merge(require('./schemas'));
+  let routers = [
+    new ClassesRouter().getExpressRouter(),
+    new UsersRouter().getExpressRouter(),
+    new SessionsRouter().getExpressRouter(),
+    new RolesRouter().getExpressRouter(),
+    require('./analytics'),
+    new InstallationsRouter().getExpressRouter(),
+    require('./functions'),
+    require('./schemas'),
+    new PushController(pushAdapter).getExpressRouter(),
+    new LoggerController(loggerAdapter).getExpressRouter()
+  ];
   if (process.env.PARSE_EXPERIMENTAL_CONFIG_ENABLED || process.env.TESTING) {
-    router.merge(require('./global_config'));
+    routers.push(require('./global_config'));
   }
 
-  batch.mountOnto(router);
+  let appRouter = new PromiseRouter();
+  routers.forEach((router) => {
+    appRouter.merge(router);
+  });
+  batch.mountOnto(appRouter);
 
-  router.mountOnto(api);
+  appRouter.mountOnto(api);
 
   api.use(middlewares.handleParseErrors);
 
